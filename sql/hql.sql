@@ -281,3 +281,35 @@ from
 -- 4. start_date 比 end_date 还大的就要被pass掉 
 where end_date >= start_date
 group by brand;
+
+-- 七、行转列
+-- 32. 行转列 -> 学号 课程01 课程02 课程03 课程04 -> 没有成绩的用0代替
+select
+    stu_id as `学号`,
+    sum(`if`(course_id = '01', score, 0)) as `课程01`,
+    sum(`if`(course_id = '02', score, 0)) as `课程02`,
+    sum(`if`(course_id = '03', score, 0)) as `课程03`,
+    sum(`if`(course_id = '04', score, 0)) as `课程04`
+from score
+group by stu_id
+order by stu_id asc;
+
+-- 八、列转行
+-- id	name	hobbies
+-- 1	zs	    [reading,coding]
+-- 2	ls	    [coding,running]
+-- 3	ww	    [sleeping]
+select
+    id,
+    name,
+    hobby
+from person lateral view explode(hobbies) tmp as hobby;
+
+-- id	name	hobby
+-- 1	zs	    reding
+-- 1	zs	    coding
+-- 2	ls	    coding
+-- 2	ls	    running
+-- 3	ww	    sleeping
+
+-- 九、
