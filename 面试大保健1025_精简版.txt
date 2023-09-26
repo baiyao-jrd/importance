@@ -1,0 +1,1608 @@
+
+一、Linux & Shell
+1、常用命令
+    查看内存： free -h
+    查看磁盘： df -h
+    查看目录： du -sh
+    查看cpu： top
+    查看io： iotop、iostat
+    查找进程： ps -ef 
+    查看端口号： netstat （ss）
+  
+2、杀死进程，不知道进程号
+    ps -ef | grep flume | grep -v grep | awk '{print $2}' | xargs kill
+    pgrep -f flume | xargs kill
+    
+3、写过哪些脚本？
+    1）集群的启停
+    #!/bin/bash
+    case $1 in 
+    "start"){
+        for i in hadoop102 hadoop103 hadoop104 
+        do 
+            ssh "绝对路径/启动命令"
+        done
+    };;
+    "stop"){
+        for i in hadoop102 hadoop103 hadoop104 
+        do 
+            ssh "绝对路径/停止命令"
+        done
+    };;
+    esac
+    
+    2）离线数仓的分层脚本
+    #!/bin/bash 
+    定义变量： 
+        时间 do_date
+        库名 APP 
+        HIVE路径、HADOOP路径
+    
+    sql="   先写出一天的： 
+                遇到日期用 do_date替换
+                遇到表名，前面加库名APP
+                遇到UDF，前面加库名
+                "
+                
+    执行sql
+
+    3）其他
+    
+4、高级shell工具
+    awk\ sed\ cut\ sort 
+    
+5、服务器监控？
+    Zabbix + Grafana / Prometheus + Grafana
+    
+6、单引号、双引号的区别
+    单引号   不取变量值
+    双引号   取变量值 
+    嵌套     看最外层
+    
+    '$do_date'      $do_date
+    "$do_date"      2022-04-28
+    '"$do_date"'    "$do_date"
+    "'$do_date'"    '2022-04-28'
+    
+二、Hadoop
+1、入门 
+  1）常用端口号
+        NameNode HTTP       Yarn Web       历史服务器 Web        FS客户端
+  2.x    50070               8088            19888                 8020 
+  3.x    9870                8088            19888                 8020
+  
+  2）核心配置文件
+     {hadoop_home}/etc/hadoop/ 
+     
+  3.x core-site  hdfs-site   yarn-site   mapred-site  workers   Capacity-Scheduler.xml
+  2.x core-site  hdfs-site   yarn-site   mapred-site  slaves   Capacity-Scheduler.xml
+  
+2、HDFS 
+    1）读写流程： 笔试题 （苟富贵、勿相忘）
+    2）副本数  默认 3个 
+    3）块大小  
+        2.x 3.x   128M 
+        1.x       64m 
+        本地      32m
+        
+        企业里怎么选？
+            一般中小公司， 128M 
+            大厂，     256M
+            
+    4）纠删码
+        计算换空间（CPU资源换存储资源）
+        企业怎么选？ 
+            一般公司，不做： cpu贵，资源紧张
+            大厂： 做，有钱，提高 存储利用率
+    5）异构存储
+        指定目录： 
+        内存、SSD、HDD、归档
+        
+        什么原则指定：
+            最近7天的分区 ==》 SSD 
+            7天以上 ==》 HDD
+        
+    6）扩容缩容 
+        白名单
+        黑名单
+    7）调优
+        ① NameNode 内存 ：
+            2.x 默认 2000m 
+            3.x 动态调整
+        
+        ② 心跳线程池大小 ： 
+            20* ln N 
+            
+    8）小文件问题
+        危害： 
+            影响NameNode 内存 
+            影响maptask数量
+        解决： 
+            har归档
+            计算角度： CombineTextInputFormat
+            JVM重用： 10-20次
+
+3、MR（Shuffle及优化）
+4、YARN
+  1）工作机制 
+  2）调度器
+    FIFO： 单队列，先进先出，生产环境一般不用，
+    容量： 多队列，每个队列都是FIFO， 可以借用资源（弹性队列）
+    公平： 多队列， 按照缺额、权重 公平享有资源，并发最高
+    
+    企业怎么选？ 
+        一般企业，选容量
+        大厂，选公平，前提资源充足
+        
+    为什么要设置多队列？
+        任务解耦，避免互相影响
+        
+    怎么设置？
+        按照引擎：hive、spark、flink 
+        按照业务分： 
+            订单、支付
+            登陆、注册 
+            物流
+            
+    默认调度器： apache 容量 ， CDH 默认公平
+  3）参数调优
+    一个NodeManager的大小：内存默认8G --》 100G （128G内存的服务器）
+    容器大小限制： 默认最小1G，最大8G
+    
+三、Zookeeper
+1、常用命令 
+    ls、get、delete、deleteall
+    zkCli.sh -server haddoop102:2181
+2、集群规模 
+    部署 奇数台 
+    
+    10台服务器     3台 
+    20台服务器     5台 
+    50台           7台
+    100台          11台
+    200台          13台  
+    
+    数量越多，耗费在同步数据、通讯就越多
+    
+3、选举机制
+    半数机制 
+    
+    1）第一次启动 
+    2）Leader挂了重新选举
+ 
+4、分布式一致性算法？
+    Paxos、ZAB 
+    
+5、适用场景
+    1） HA 的协调者： NameNode 、 Yarn、 xxx
+    2） 框架依赖： kafka、hbase、clickhouse
+    
+四、Flume 
+1、组成
+1）taildir source 
+    支持断点续传、多目录
+    哪个版本有的 =》 apache 1.7 
+    原理：    可能有重复
+        =》 怎么办？
+            不解决：  下游处理（数仓清洗）
+            =》 解决： 自定义，加事务
+            
+    支不支持子文件夹递归？ =》 不支持
+        =》 怎么办？ 
+            =》 规范，不存在子文件夹
+            =》 自定义，添加递归逻辑
+
+2）channel   
+    memory       内存         效率高、可靠性低
+    file         磁盘         效率低、可靠性高
+    kafka        Kafka的磁盘  效率高、可靠性高 
+        kafka channel > memory channel + kafka sink 
+     
+    企业怎么选？ 
+        
+        如果对接的是kafka，优先选择kafka channel 
+        如果对接的不是kafka ：
+            一般日志， 选快的  ==》 memory channel 
+            金融、跟钱相关的， 选可靠的 =》 file channel
+
+
+3）hdfs sink 
+    小文件问题： 
+        滚动大小： 128M （参考块大小）
+        滚动时间： 半小时
+        event数量： 不设置
+
+4）事务
+    source -> channel : put事务 
+    channel -> sink :  take事务
+
+2、三个器
+1）拦截器
+    ETL拦截器： 很轻量的清洗：校验json格式的完整性
+    时间拦截器： 提取数据的时间，作为写入hdfs路径的依据
+    
+    继承Interceptor,重写4个方法： 
+        初始化 
+        单Event处理 
+        多Event处理
+        关闭
+        
+    继承静态内部类Builder
+    
+    打包 =》 放到flume的lib目录下 ==》 配置文中指定拦截器（全类名$Builder）
+    
+2）channel选择器
+    replicating： 默认的 ，一个event，发往所有的channel，项目用的这个
+    multiplexing：多路复用， 一个event，发往指定的channel
+    
+3）监控器
+    ganglia  
+    监控的   事务尝试提交的次数 、 成功提交的次数
+    
+    如果两者差值较大，说明发生大量重试 ===》 要优化
+    
+3、Flume优化
+1）内存： 默认 2000m ===》 4-6G
+2）增加台数： 活动前 提前增加服务器
+3）hdfs sink 
+    小文件问题： 
+        滚动大小： 128M （参考块大小）
+        滚动时间： 半小时
+        event数量： 不设置
+        
+4、挂了怎么办？
+1）尝试重启
+2）评估影响：
+    重复： 
+        taildirsource 可能有重复 
+    丢数：
+        channel 是 memory ，会丢， 最多丢100个Event
+        日志服务器保存30天
+3）定位问题：看日志
+4）解决问题：
+    
+五、Kafka（35件事）
+1、基本信息
+1）组成
+2）部署几台
+    2（生产峰值速率*副本数 / 100）+1
+        生产峰值是 实际的速率，不是压测来的
+        N先向上取整
+3）压测 ： 官方脚本
+4）保存时间： 默认7天 ==》 改成3天
+5）副本数 ： 默认1个 ==》 2个   
+6）分区数 ： 默认1个=》 调整
+    
+    创建单分区的Topic，进行压测 
+        =》 单分区 生产峰值速率  Tp
+        =》 单分区 消费峰值速率  Tc 
+        
+    期望的吞吐率 Tt= 100M/s 
+    
+    估算分区数 = Tt / min(Tp,Tc) = 约5个
+6）ISR
+    副本同步队列： 解决 leader挂了，谁来当老大的问题
+    
+    老版本： 延迟条数、延迟时间
+    新版本： 延迟时间 （lag）
+    
+7）监控器 
+    kafka eagle 
+    其他： monirot、manager、自己开发
+    
+8）几个Topic？
+    离线： 1个Topic 
+    实时： 十几个Topic 
+    
+9）消费者消费策略
+    Range ： 均分，除不尽的给id小的
+    RoundRobin ： hash值 % 消费者数 ，轮询
+    
+    粘性： 尽量复用之前的分配关系
+           一般在rebalance时
+           
+2、数据量的计算
+    100万日活  平均每人每天产生100条  每条平均1k
+
+    1天 = 100万 * 100条 = 1亿条 
+        = 1亿条 * 1k = 约 100G
+        
+    平均条数 = 1亿条 / (24 * 60 * 60 ) = 约 1150 条/s  (说大概值，1000多一点)
+    平均速率 = 1150 条 /s  * 1k = 约 1M/s
+    
+    峰值时间： 中午小高峰、晚上下班大高峰（晚上7 - 12）
+    峰值条数 =  平均 * 20倍 =  23000 条/s (说大概值，2万条/s左右)
+    峰值速率 =  23000 * 1k = 约20M/s 
+    
+    低谷时间： 凌晨 4-5点
+    低谷条数 = 平均 /20  = 50条 /s (大概值， 几十条/s)
+    低谷速率 = 几十K /s 
+    
+3、资源
+  磁盘 ： 1天 = 100G 
+         100G * 2副本 *保存3天 / 0.7 = 约1T
+  内存 ： 默认 1G ==》 10G 
+  cpu ：  写磁盘、副本同步、传输数据
+  网卡：  
+
+4、丢数 
+1）生产者
+    ack      
+        0    发送完，不需要应答                             效率高、可靠性低 （生产不会用）
+        1    发送完，需要leader应答                         效率中、可靠性中
+        -1   发送完，需要leader和ISR里所有的follower应答    效率低、可靠性高
+
+    重试    
+        ack = 1 ，设置个 3-5次 
+        ack = -1， Int最大值 =》 无限重试
+2）broker 
+    副本数 >= 2 
+    最小同步副本数 >=2       min.insync.replicas(默认1)
+
+5、重复 
+    是指 重复发送 产生的
+    
+    开启幂等性   enable.idempotent = true 
+        => 单分区单会话 幂等 
+        
+    原理：  <pid,partition, SeqNum>
+        SeqNum: 生产者打上的一个 自增的 序列：  1、2、3、4、5、6、7......
+
+6、乱序
+    单分区有序 =》 有条件的 
+    1.x之前的版本：
+        inflight = 1 
+    1.x之后： 
+        不开幂等性， inflight = 1 
+        开幂等性， inflight可以（1~5）
+
+7、积压 
+1）消费能力不足
+    分区数：消费者线程 =  1：1 
+    =》 同时提高分区数 和 消费者线程 ，并且保持 1： 1   
+        1分区：1CPU  ====》 5分区： 5CPU
+2）单个消费者消费能力不足
+    批次限制： 
+        条数 500条   ==》 2000条
+        大小 50M
+3）flink消费kafka，flink挂了，重启 
+    ===》 短暂的积压
+        ===》 不用处理，过一会就跟上进度
+
+8、优化 
+1）资源调优： 内存 1-》10 ，  CPU 三个线程参数调大 
+2）提高吞吐
+    ①生产者 
+        buffer ： 默认32m  ===》 64m
+        batch.size : 默认 16k  ===》 32k 
+        linger.ms: 默认0ms  ===》 100ms以内
+    ②消费者
+        fetch.max.bytes: 默认50M   
+        max.poll.records : 默认500条  ==》 2000条
+    ③增加分区
+
+9、挂了
+1）尝试重启 
+2）评估影响： 
+    丢数 
+    重复 
+    乱序
+3）定位问题： 看日志 
+4）解决问题
+ 
+10、消费者消费全局有序性
+    1）使用单分区的Topic
+    2）指定生产者的key = 库名+表名
+        =》 每张表大小不一，数据倾斜怎么办 
+    3）flink指定watermark：某些场景
+
+11、高效读写
+1）集群、分区
+2）顺序写 
+        顺序写 600M/s    随机写 100K/s 
+3）零拷贝
+4）稀疏索引
+
+12、Kafka存储格式
+    Segment ： 每个默认1G
+        .log
+        .index   
+        .timestamp
+    
+六、Hive
+1、基本架构
+    sql -》 Antlr -》 AST 
+                  -》 OperatorTree （逻辑执行计划）
+                  -》 逻辑计划优化（RBO-基于规则的优化：谓词下推）
+                  -》 TaskTree （物理执行计划）
+                  -》 物理执行计划优化（CBO-基于代价的优化）
+                  -》 提交mr任务
+2、与数据库的区别
+    除了SQL语法优点类似，其他都不一样
+                Hive                      MySQL
+执行效率      大数据量，快               小数据量，快
+适用场景      适合大数据量的查询分析     小数据量的增删改查
+
+3、内部表、外部表
+元数据、原始数据
+删除内部表： 元数据、原始数据 都删除
+删除外部表： 只删除 元数据
+
+企业中怎么用？
+    一般用外部表
+    自己建的临时表、测试表用内部表
+    
+4、4个by
+  order by       全局排序，最终只有一个reducer（结合limit使用）
+  sort by        分区内排序
+  distribute by  决定数据如何分区
+  cluster by     当sortby 和 distribute by字段一致时，可以代替，只能升序
+  
+5、系统函数
+  1）时间类： date_format \ date_add \date_sub \ date_diff \ next_day \ last_day
+              unix_timestamp \ from_unixtime 
+  2）字符串： substring \ split \ concat \concat_ws 
+              get_json_object
+              regexp_replace()
+  3）空值处理： if 、 nvl 
+  4）一行变多行： laterval view explode(Array或Map)
+     多行变一行：  collect_list \ collect_set 
+     一列变多列:   case when \ if 
+     多列变一列:  concat\concat_ws
+     
+6、自定义函数
+    UDF ： 一进一出
+    UDTF： 一进多出
+    UDAF： 多进一出
+    
+    项目里用了UDTF： 解析 前端埋点数据的 json 数组
+    
+    步骤：  
+        继承GenericUDTF，重写3个方法
+            初始化： 校验 输入参数的个数、类型、 返回值的约束
+            process ： 遍历json数组，用 forward() 发送
+            关闭
+    
+    打jar包 -》 上传HDFS -》 创建 create function .... using jar HDFS路径
+    
+7、窗口函数
+   聚合类/排名类/行范围/first_value、last_value 
+        over(partition by ... order by ... rows between ... and ...)
+        
+   sql题： 经典5道题、高阶sql、练习题，每天抽半小时-1小时练一下
+    
+8、优化
+1）Mapjoin ：默认开启    大小表join
+2）分区、分桶
+3）压缩
+4）列式存储
+    id      name    age 
+    1       zs      18 
+    2       ls      19  
+    
+    列式：  1   2   zs   ls  18   19 
+    行式： 1       zs      18   2       ls      19  
+    
+    查询语法： select name from A where age > 18 
+    
+    列式 查询分析快、 结构更紧凑
+5）合理设置map
+    mapreduce.input.fileinputformat.split.maxsize 
+        增大参数 =》 切片变大，数量变少 ==》 Map数变少
+        减小参数 =》 切片变小，数量变多 ==》 Map数变多
+        
+6）合理设置reduce数量 
+    参数指定： 默认是 -1，不指定
+    估算机制： 总数据量 / 每个reducer处理的数据量
+    特殊机制： order by 、 count(distinct )
+    
+    生效优先级 : 特殊机制 > 参数 > 估算机制
+    
+7）使用多引擎 
+    mr :   年、月、周，时间跨度大-》数据量大 的指标
+    tez :  临时指标、测试
+    spark: 日常的天指标
+    
+    配置好spark引擎的环境
+    
+    执行sql前，set hive.execution.engine=mr;
+    
+8） SMB Join 
+    （sort merge bucket ）： 大表 join 大表
+    
+    必须是分桶表，分桶字段 = 关联字段
+    分桶的排序字段=分桶字段
+    
+    使用： 开启参数
+    
+9） Hive有几种join？
+    Map Join 
+    SMB Join 
+    Common Join（reduce join、 shuffle join）
+    
+10）元数据备份
+    MySQL --》 定期备份 
+          --》 crond定时 --》 mysql dump
+
+9、数据倾斜（遇到过什么问题）
+1）现象
+    个别reduce执行时间比其他的长特别多，卡在99%
+2）原因 
+    ① 数据本身不均匀
+    ② 大量null值
+    ③ 类型不一致
+3）解决
+    group by倾斜
+        Map端预聚合 ： 参数 hive.map.aggr=true
+        二次聚合 ： 
+            使用参数： hive.groupby.skewindata = true 
+            用sql实现： 高阶示例
+    
+    
+    join 倾斜
+        打散倾斜的表的key，扩容另一张表的key
+            参数：hive.optimize.skewjoin=true
+            手动sql实现：高阶示例 
+            
+    null值原因： 
+        没用的，已经过滤了
+        有用的，参考上面的做法
+
+    类型不一致：(比较少见)
+        A join B on cast(A.id as string) = B.id
+
+
+10、分隔符
+    Hive 默认的 列分隔符 \001   \u0001
+    
+    MySQL 
+    id   name   age 
+    1    z  s   18  
+    
+    
+    ==> HDFS :   1  z   s   18
+    
+    Hive 
+    id   name  age 
+    1     z    null
+    
+11、union 、 union all 
+    union 去重 
+    union all 不去重 
+    
+    
+    数据本身没有重复，用哪个？  结果都一样， 建议用 union all
+
+    
+七、DataX
+1、用它做什么？
+    全量同步MySQL的数据 
+    阿里开源的
+  
+2、优化
+    流速控制：
+        单个Channel 限速： 1M/s -> 5M/s
+        并发： 控制channel个数 
+        
+        
+        百兆网卡 ==》 单个channel 5M/s, 控制 channel 3个
+        
+3、空值问题 
+    
+    MySQL       Hive 
+    null        \N 
+    
+    导入：MySQL -》 Hive        Hive建表时指定null格式为 ''
+    导出：Hive -》 MySQL        "nullFormat": "\\N",
+                                源路径下不能有空文件
+    
+4、业务库的每天数据量？
+    100万日活  平均每天10万订单 每个订单平均对应10-20条数据  每条数据平均1k 
+    
+    10万 * （10~20）条 * 1k = 1-2G
+    
+5、每天几点开始跑？ 跑多久？
+    00：10分，  跑 10分钟以内
+
+八、DophinScheduler （DS、海豚）
+  1、每天跑多少指标？
+        日常100来个指标，活动时 150-200个指标
+  
+  2、几点开始跑，跑多久？
+        第一个脚本是DataX，全量同步（第一次同步历史数据、 每天的维表全量同步）
+        00：10 
+        8点之前必须跑完： 正常每天平均 3-4小时
+  
+  3、任务失败怎么处理？
+        告警： 微信、钉钉、邮件、短信、打电话 （根据不同的重要程度，设置不同的告警级别）
+               睿象云
+        
+        处理： 手动再重试一下、看日志
+        
+        看DS的日志
+            =》 看yarn应用日志：  历史服务器ui、 命令（yarn logs -applicationId appId | less）
+            
+        Exception：xxxx 
+        
+        caused by：xxx 
+        
+        caused by：xxx 
+        
+        caused by：xxx 
+        
+        caused by：xxx 
+
+九、Maxwell
+1、做什么？
+    增量同步MySQL的业务表
+ 
+2、原理
+    伪装成MySQL的从库，监听binlog
+    
+3、选型：Canal、。。。。。
+    Maxwell优点：
+        支持断点还原
+        支持历史数据同步
+        数据格式更轻量
+
+4、maxwell同步历史数据的时候，业务表发生改变，怎么保证一致性？
+    只能保证 至少一次，可能有重复
+    =》怎么办？
+        =》不处理， 后续去重
+        =》同步历史数据，只会最开始做一次
+        
+5、FlinkCDC： 同步历史数据的时候，业务表发生改变，怎么保证一致性？
+    1.X 同步历史数据 ==》 锁表 
+                    ==》 配置参数，不锁表 ==》 只能保证 至少一次 
+                    
+    2.x 同步历史数据，有主键，不用锁表
+    
+6、Maxwell 写到kafka，哪种分区方式？
+   
+十、Spark
+1、常用端口号 
+    4040    运行时ui页面
+    18080   Spark历史服务器
+    
+2、部署模式
+    Standalone   自己管资源 
+    Yarn         国内主要使用
+    K8S          未来趋势
+    Mesos        国外用，不了解
+
+3、RDD 
+1）什么是RDD？  ==》 弹性分布式数据集
+    可变？ =》 不可变
+2）rdd五大属性
+    计算分区
+    血缘依赖
+    分区器
+    计算逻辑
+    移动分区不如移动计算
+    
+3）持久化
+    cache    ===》  缓存， 不切断血缘
+    checkpoint ==》 存到文件，切断血缘
+    
+4）常用算子
+    ① 单value  rdd2 = rdd1.算子
+        map 
+        flatmap 
+        group by 
+        ......
+    
+    ② 双value rdd1.算子(rdd2)
+        zip 
+        union 
+        substract 
+        intersect
+        ......
+    
+    ③ k-v 
+        
+        groupbykey :  只重分区，不预聚合
+        reducebykey ： 重分区 + 预聚合
+        
+                            初始值             分区内、分区间的计算逻辑是否相同
+        reducebykey ：          无                 一样
+        foldbykey               有                 一样
+        aggregatebykey          有                 可以不同
+        combinebykey            有（可以是函数）   可以不同
+        
+    ④ 重分区算子
+        reparition： 一般扩大分区，一定会shuffle
+        colasce ：   缩小分区，不一定会shuffle
+        
+5）血缘依赖
+    宽依赖： 非独生子
+    窄依赖： 独生子
+    
+6）几个划分
+    job   ：  一个行动算子 生成 一个 job 
+    stage ： 遇到宽依赖，就会划分stage  ，， stage数量= 宽依赖数量+1 
+    task  ： 一个stage里面，最后一个rdd的分区数 = task数
+    
+7）共享变量
+    累加变量
+    广播变量
+        
+        
+
+4、SQL 
+1）三者关系
+    rdd、df、ds
+2）Hive on Spark  vs Spark on Hive 
+    Hive on Spark： sql还是hive的语法， 底层引擎是spark
+    Spark on Hive ： sql是spark sql的语法
+ 
+3）优化： B站
+
+5、Streaming
+1）计算模型
+    微批次：每一个批次封装成一个rdd
+2）参数  
+    速率控制
+    优雅关闭
+    背压
+3）窗口 
+    滚动 （窗口长度 = 滑动步长）
+    滑动 （窗口长度 、滑动步长）
+    窗口长度 必须 = 批次的整数倍
+
+6、Spark内核： 提交流程、通讯、调度、内存
+
+十一、项目架构
+1、数仓概念
+   输入： 前端埋点（web、app、小程序）、业务库（MySQL） 、爬虫
+   产出： 报表、 用户画像、 推荐系统、 风控系统
+   
+2、框架版本
+   apache开源： 缺点部署运维麻烦
+   CDH、HDP ： 使用方便、运维简单  
+        CDH最后版本 6.3.2    HDP 3.1.4 
+   
+   怎么选？
+       cdh 
+       apache
+       
+   各组件版本：
+ 
+3、集群规模
+    7~15台 ： 128G内存、8T磁盘、40线程
+    
+1）磁盘 
+   hdfs（数仓分层的数据）：
+        ods： 10G
+        dwd+dim： 10G 
+        dws： 50G（不压缩）
+        ads： 忽略
+        
+        70G * 3副本 * 保存180天 / 0.7 = 53T
+        算上业务数据 = 60T
+   
+   kafka： 离线+实时 3T
+   
+   
+   如果单台8T ==》 半年不扩容，7~8台就够了
+              ==》 如果要1年不扩容， 服务器扩容磁盘
+   
+
+2）内存 
+   7台 * 128G = 896G内存 
+   Yarn = 100G * 7台=700G
+   
+   128m数据 ： 1G内存 
+   同时 700G /8 = 87G数据
+   
+
+3）CPU
+   7* 40线程 = 280线程（224给Yarn + 56其他）
+   
+   实时： 24小时不间断运行，资源一直占用
+   勉强够用
+   未来不够了，怎么办？ ==》 增加服务器
+   
+
+十二、数仓建模
+
+1、建模理论
+1）理论
+    关系建模：ER模型 == 》 后端设计的业务表 （MySQL的表）   三范式
+    维度建模： 星型模型、雪花模型、星座模型
+        
+        最好使用星型模型
+        
+2）建模
+事实表： 特点是数据量大一点 ===》 同步策略： 每天增量 ===》 Maxwell
+    事务型事实表： 对应业务过程 （下单、支付...）  1:1
+        不足： 存量指标
+               从下单到支付的平均时长
+        ① 选择业务过程： 
+                挑选感兴趣的业务
+                    对我们来说，规模不大、业务单一 ==》 几十张表都要
+                    大厂，上千张表 ==》 选择需要的业务表
+        ② 声明粒度
+                一行数据代表什么样的行为：  一次下单、一天、一周
+                选择最小粒度： 只要我们不做聚合操作
+        ③ 确定维度
+                对事实的描述信息： 时间、地点、商品、用户、优惠券、活动。。。
+        ④ 确定事实
+                主要关注事实的度量值（次数、件数、金额....）
+        
+    
+    周期型事实表： 对应一些存量指标（库存）
+        ①确定粒度
+            周期：一般是按一天
+        ②确定事实
+            度量值
+            
+    累积型事实表： 涉及多个业务过程的指标
+        ① 选择业务过程： 
+                挑选涉及的业务： 下单、支付
+                    
+        ② 声明粒度
+                选择最小粒度： 只要我们不做聚合操作
+        ③ 确定维度
+                涉及的事务型事实表 所对应的维度，都拿过来
+        ④ 确定事实
+                主要关注事实的度量值： 涉及的事务型事实表 所对应的度量值，都拿过来
+    
+
+维度表： 数据量相对小一点， 同步策略 ==》 每天全量（DataX） 
+
+    用户表特殊，新增及变化 ==》 拉链表
+    
+    维度整合（维度退化、降维）：
+        sku、spu、品牌表、三级、二级、一级、商品平台属性、商品销售属性 ===》 商品维度表
+        地区、省份 ==》 地区维度表
+        活动信息表、活动规则表 ==》 活动维度表
+
+2、搭建数仓的步骤
+1）需求调研：
+    业务调研： 熟悉业务流程、熟悉业务表有哪些、对应什么业务行为（MySQL）、熟悉业务表的字段
+            跟产品聊、跟业务人员聊（后端）
+    需求分析： 指标
+2）明确数据域： 垂直划分、方便管理
+    交易域	加购、下单、取消订单、支付成功、退单、退款成功
+    流量域	页面浏览、启动应用、动作、曝光、错误
+    用户域	注册、登录
+    互动域	收藏、评价
+    工具域	优惠券领取、优惠券使用（下单）、优惠券使用（支付）
+    
+3）构建业务总线矩阵
+
+4）维度建模
+    
+5）明确统计指标： 指标体系
+    原子指标： 不可拆分的， 业务过程+度量 ： 下单次数
+    派生指标： 原子指标 + 统计周期 + 业务限定 + 粒度
+    衍生指标： 多个派生指标，做运算（求比例）
+    
+6）汇总层设计
+    由需求出发设计的：
+        将 业务过程、统计周期、统计粒度相同的，放到同一张汇总表
+        如：交易域用户商品粒度退单最近1日汇总表
+        
+        最近1天
+        最近n天
+        历史至今
+
+7）开发
+
+3、数仓分层
+1）ods层
+    保持数据原貌，起到备份的作用
+    使用分区表，避免全表扫描
+    使用压缩，节省磁盘空间
+    
+2）dwd层+dim层
+    清洗手段： hql 、 python、spark、 kettle
+    清洗规则：
+        解析前端埋点数据
+        去重
+        核心字段不为空： 订单id
+        空值处理： 过滤掉、替换掉
+        统一数据格式： 日期 2020/02/02 ===> 2020-02-02
+        脱敏： 手机号、银行卡号、身份证号 ==》 md5
+    清洗比例：脏数据的比例
+        万分之一  ===》 早期比这个高 ， 找前端、后端 沟通、调整
+    分区表
+    列式存储
+    压缩
+    维度建模：
+3）dws层
+     把 业务过程、统计粒度、统计周期相同的 放到一张汇总表
+     大概有20+张汇总表
+4）ads层
+    统计的指标： 准备30个
+       分类： 活跃主题、漏斗分析、复购率、GMV、拉新
+    
+    要求：手写 思路
+    
+    你分析过比较难的指标： 经典5道题
+
+
+    
+作业：
+    1、每天抽点时间，练sql
+    2、数仓建模、搭建步骤
+    3、串讲：
+    4、梳理知识点，做一些脑图（可选）
+    5、准备不同的指标（可选）
+    
+十三、数仓业务
+1、埋点格式
+启动日志 
+{
+    "common":{，，，，},
+    "ts":123123123123,
+    "start":{},
+    "err":{}            -- 不一定有
+}
+
+页面日志
+{
+    "common":{},
+    "ts":,
+    "page":{},
+    "displays":[{},{},{}...],   -- 不一定有
+    "actions":[{},{},{}...],    -- 不一定有
+    "err":{}                    -- 不一定有
+}
+
+离线数仓： 埋点数据 解析成 几张表 =》 启动、错误、页面、曝光、事件
+
+2、几张表？
+    ods ： 1埋点 + 40来张
+    dwd+dim ： 20多张
+    dws ： 20多张
+    ads ： 30来张
+    
+    100来张
+    
+十四、测试
+1、企业的环境：
+    正式环境（生产环境、现网）
+    测试环境
+    开发环境
+    
+2、跳板机（堡垒机）
+
+mysql  
+
+A  3条数据 
+
+执行 mysqldump ===》 生成 sql文件  ==》 source
+
+3、怎么做代码管理（版本管理）？
+    git =》 gitlab
+    
+
+4、敏捷开发
+
+需求10个 
+开发 
+测试 
+上线
+
+需求10个 
+开发 
+测试 
+上线
+
+需求10个 
+开发 
+测试 
+上线
+
+需求10个 
+开发 
+测试 
+上线
+
+十五、数仓热点
+1、元数据管理
+1）数仓里面的血缘关系： Atlas
+2）采集链路的血缘： 自己开发，解析datax配置文件、解析flume配置文件
+
+2、数据质量
+1）开源框架：griffin ==》 不活跃、不好用，不推荐
+2）自己实现：  
+    监控项理解为一种特殊的指标，写sql脚本
+    多久检测一次：  定时检测 -》 调度器
+    
+    大厂： 自己开发的一套系统
+        规则库
+    
+3、权限管理
+    Ranger
+    
+4、数据治理
+    元数据管理 + 数据 质量 + 权限管理 
+    
+5、数据湖
+    hudi、iceberg
+    
+6、数据中台
+
+OneData = OneService + OneID + OneModel
+
+业务中台 = 业务模块 
+数据中台 = 集群 + 数仓
+
+7、埋点怎么做的？
+1）自己开发的，前端
+2）不是自己开发的， 买  
+
+十六、串讲
+1、讲这么久？
+    1） 复习思路
+    2） 在此基础上 精简  
+    
+2、我们怎么用？
+    1）跟我一样从头讲到尾
+        背 
+        讲 
+    2）再去精简 ：   半小时左右
+        突出 离线数仓的构建 、数据倾斜
+
+3、复习方法？
+    看视频、听音频、看文字稿
+    
+==========================================================================================
+一、Flink
+1、基本信息 
+
+2、slot
+    隔离的是内存，不隔离CPU
+    可以共享的
+        属于同一个slot共享组，不同算子的subtask 可以共享同一个slot，同时在运行
+        
+        企业应用场景： 某一个算子计算任务重，不像跟别的任务共享，怎么办？
+                ==》 将这个算子指定为其他的slot共享组
+                
+3、subtask、task、Operator Chain、Graph
+    subtask： 算子的一个并行实例
+    task： 其实就是 运行后的 subtask
+    
+    Operator Chain： Flink自己的优化， 
+        one-to-one的关系
+        并行度相同
+        
+        什么时候禁止串起来？
+            1） 想让 task 平铺开
+            2） 定位问题的时候（反压）
+            
+    Graph：  
+                            在哪里生成       传递给谁
+        StreamGraph         Client            Client
+        JobGraph            Client            JobManager
+        ExecutionGraph      JobManager        TaskManager
+        
+4、Flink部署模式
+    Standalone      自己管资源
+    Yarn            Yarn管资源，国内主要用
+        session         共享集群
+        per-job         独享集群
+        application     独享集群，跟per-job区别： 用户代码的main方法在 JobManager解析
+    K8S             未来趋势
+    Mesos           国外在用
+    
+    公司用的什么模式？
+        Yarn：  per-job/application
+        
+5、Flink的集群规模多大？
+    我们用的Yarn：  per-job/application模式，不用事先启动集群
+    提交任务时，由yarn启动集群
+    需要几个节点由yarn动态分配： 
+        并行度
+        每个TM的slot数
+        
+        p=10， 每个TM有3个slot =====》 yarn会申请 1个 JobManager，4个TaskManager
+        
+6、资源设置 
+内存 
+    JobMamager： 默认2G， 一般不用调整
+    TaskManager： 默认2G， 一般 2~8G
+    
+    我们项目中，平均给个4G左右
+    精确调整：
+        1）内存模型
+        2）调整一些参数
+
+并行度 
+    算子指定 > env指定 > 提交命令 > 配置文件
+    
+    粗略设置： 简单的计算任务、etl任务
+        并行度 = kafka 分区数
+        
+    精细设置： 
+        source ： = kafka 分区数
+        keyby之前： 保持跟 source一致
+        keyby之后： 建议 2的n次方
+        sink：   = kafka 分区数
+        
+    总结： 我们基本所有的任务都是 提交参数去指定并行度，保持跟kafka分区数一致
+           个别任务： keyby后的算子指定为 2的n次方，8
+
+
+每个TM的slot数
+    1拖1：1个TM 1个 slot 
+    1拖n：1个TM 2~4个 slot 
+    
+    区别： 
+        网络通讯：
+            1拖1的，消耗网络资源多
+        磁盘资源
+            1拖1独享 TM资源
+            1拖n共享 TM资源
+                可能对 RocksDB造成压力
+                
+7、常用算子
+map  
+flatmap 
+keyby 
+    两次hash：
+        第一次： hash(key) ==> hash1 
+        第二次： murmurhash(hash1)  ===> hash2 (keygroupid)
+    
+    决定key往哪个分区去
+        keygroupid * 下游算子的并行度 / 最大并行度
+        
+    最大并行度：默认128， 可以改成 1024 
+        
+合流：
+    union： 一次可以合并多个流，类型要求一致
+    connect： 一次只能连接 两个流，类型可以不一样
+    
+interval join： 底层是 connect+keyby
+    判断数据是否迟到，如果迟到，直接return不处理
+    每条流都会初始化一个 Map类型的状态，key是时间戳，value是List<数据>
+    不管哪条流的数据来，都会去另一条流的状态里 遍历 
+    如果匹配上 =》 发往 join 方法
+    
+    注意：interval join只能拿到join上的数据 
+        如果需要拿到没 join上的 
+            api： coGroup+connect 
+            sql： 用sql写
+  
+8、时间语义
+注入时间
+处理时间
+事件时间
+
+9、谈谈你对watermark的理解
+1）概念
+    衡量事件时间进展的一个逻辑时钟
+    单调不减的
+    解决乱序
+    特殊的时间戳，向下游传递
+    触发：窗口、定时器....
+    事件时间 小于 当前的 watermark，就是迟到数据
+    
+2）生成方式
+    周期性： 默认，  间隔200ms
+    间歇性： 来一条更新一次watermark
+    
+3）传递方式
+    一对多：广播
+    多对一：取最小，木桶原理
+    多对多：拆分来看
+    
+4）watermark的生成公式
+    watermark = 当前最大的事件时间 - 乱序程度 - 1ms
+    
+5）watermark的起源？
+    <Streaming 102>\  <超越批处理的世界-The Data Flow>
+    
+10、窗口 
+1）分类 
+    基于时间： 滚动、滑动、会话
+    基于条数： 滚动、滑动 
+    
+   keyed 和 non-keyed
+   
+2）四大组成 
+    窗口分配器 Assigner
+    触发器 Trigger 
+    驱逐器 Evictor 
+    窗口函数 ： 增量、全窗口
+    
+3）窗口是怎么划分的？
+    start = 时间戳取窗口长度的整数倍
+    end = start + windowsize
+    
+    左闭右开：  maxTs = end - 1ms
+    
+4）窗口的生命周期
+    创建： 属于本窗口的第一条数据来的时候，现new的，单例集合
+    销毁： 时间进展 >= maxTs + 窗口允许迟到的时候
+    触发计算： 时间进展 >= maxTs
+    
+5）统计 今天 0点到 现在为止的 pv值，每5s输出一次
+       api写法： 指定 trigger为 持续触发器
+       sql： 13版本开始， culmulate window 
+       
+11、状态
+算子状态： 作用范围是算子，每个并行实例是独立的
+键控状态： keyby， 每个key一个独立的状态
+
+状态后端：
+    内存 
+    RocksDB 
+    
+    另外指定ck存储位置
+    
+老版本状态后端（<=1.12版本）
+                本地状态的存储         ck的存储
+    Memory         TM堆内存            JM堆内存
+    FS             TM堆内存            hdfs
+    RockDB         rocksdb             hdfs
+    
+    企业怎么选？ 
+        状态后端：
+            基于内存： 简单计算、etl
+            基于rocksdb： 状态大 ==》 窗口大
+        ck存储： 
+            hdfs
+            
+12、Checkpoint 
+1）原理： Chandy-Lamport算法     
+    
+2）checkpoint的一致性级别
+    barrier对齐： 上游所有同一编号的barrier都到齐，才做checkpoint
+        精准一次
+        至少一次
+        
+    企业怎么选？  
+        对精确性要求高的，用 精准一次 
+        对精确性要求不高，用 至少一次
+        
+3）savepoint 
+    savepoint     checkpoint 
+    手动           自动
+    
+    怎么选？
+        用户使用的是 savepoint： 升级代码
+            取消旧任务的同时触发 savepoint： flink cancel -s 
+            新任务从 savepoint恢复启动： flink run   -s
+
+4） checkpoint设置 
+    间隔：  秒、3-10分钟
+        根据延迟性要求取舍： 
+            要求延迟低： 秒 
+            延迟分钟级可以接受： 分钟
+     
+    语义：精准一次、至少一次
+    最小等待间隔
+    超时： 参考间隔 1-1.5倍
+    失败次数：
+    设置保留checkpoint
+    
+    
+13、Task重启策略
+    固定延迟重启： 次数、重试间隔 
+    故障率重启： 时间范围、次数、重试间隔
+    
+14、怎么保证端到端一致性？
+    source端： 可重发 
+    flink内部： checkpoint设置为精准一次
+    sink端： 幂等、事务（2pc） 
+    
+    写mysql，怎么保证精准一次？
+        官方的jdbc 连接器，只能保证至少一次
+        streamx提供了jdbc连接启，实现了2pc
+        
+        不用事务，用幂等行不行
+            upsert ，要求mysql有唯一主键
+            
+    如果写文件，怎么保证一致性？
+        类事务的实现：
+            预提交： 写入一个临时文件   a_asd123dsr312fds31345sd123.txt
+            正式提交： rename： 临时文件 重命名 为 真正名字  a.txt 
+            回滚：  删除临时文件
+            
+    写入到clickhouse，怎么保证一致性？
+        写入只能至少一次，
+            解决：查clickhouse的sql，加final关键字
+            
+15、SQL工作机制
+    Calcite 
+        
+16、CEP 复杂事件处理
+    next 
+    followby 
+    
+    缺点： Map状态
+    
+17、维表join方案
+1）预加载： open(),周期型查mysql，存状态
+    缺点： 延迟、状态大
+2）热存储加载： 存在外部系统（mysql、redis、hbase），现查
+    旁路缓存： 加速查询效率、减小外部系统的压力
+    异步io： 提高并发
+    
+    缺点：可能存在延迟，可以接受
+    
+3）维表数据读成一条流： 
+    sql： 作join 
+    api:  做 广播 
+    
+    缺点： 状态占用资源
+    
+4）lookup join： sql提供的维表join
+    
+18、Flink有几种Join？
+    API： window join 、 interval join 
+    sql： 
+        regular join  ==》 存在状态里，默认不会清理，设置TTL
+        interval join ==》 即使没有join上，也会输出，不用设置TTL
+        temporal join  
+        loopup join
+        
+19、Flink与Spark Streaming的区别？
+            Flink       SparkStreaming 
+计算模型    流          微批  
+时间语义    三种        处理时间
+窗口        更多        少 
+状态编程    支持        很low 
+
+20、内核： 提交流程、 通讯、调度、内存模型
+    内存模型（必看）
+    提交流程（必看）：简单、  详细
+    
+    你遇到过什么问题？（）
+        看日志：发生oom
+        看Webui的内存模型： 发现 JVM元空间越来越大
+        
+        打印dump文件、打印gc文件
+        
+        用mat查看dump文件
+            =》 查看那个 类数量最多
+            =》 发现： 代码中new的某一个类数量很多 
+            =》 分析： 没有被回收 ==》 存在内存泄漏 
+            =》 解决： 
+                        new的逻辑写在  open()
+                        
+    Flink通讯：
+        Akka ： 组件之间的通讯，用
+        Netty： 传输数据
+        
+    调度： Graph，最重要 ExecutionGraph
+        
+21、Flink遇到过什么问题？ -- 反压
+1）现象
+    checkpoint超时、失败
+    状态变大
+    消费速率变慢，kafka产生积压
+    
+2）定位  
+    webui ： 
+            ①定位第一个为ok节点，就是罪魁祸首
+            ②特殊情况：上游全是ok，找第一个为high的节点（比如 一进多出，数据膨胀）
+    metrics： 
+            buffers.inPoolUsage     buffers.outPoolUsage
+                1                        0                  ===》 ①的罪魁祸首
+                1                        1                  ===》 被反压的节点
+                0                        1                  ===》 ②的罪魁祸首
+
+    精确定位到算子： 先禁用 Operator Chain 
+    
+3）可能的原因 
+    资源不合理 
+    数据倾斜 
+    代码性能地下
+    连接外部系统
+    
+4）解决
+    ① 数据倾斜：  
+    ② 火焰图分析： 
+        横向： 执行时长
+        纵向：调用链
+        
+        大平顶 ---》 问题所在
+    ③ 分析GC情况
+        找 fullgc
+    ④ 加资源： 内存、并行度
+    ⑤ 对接外部系统： 攒批、缓存
+    
+5）什么场景遇到的？
+    数据倾斜 
+    连接hbase的时候出现了反压
+        =》 旁路缓存
+        =》 异步io
+        
+22、你们遇到过什么问题？ --- 数据倾斜 
+1）现象
+    webui ===》 subtasks ==》 个别subtask接受的数据量明显比其他的大得多
+    
+2）原因
+    数据本身不均匀 
+    
+3）解决  
+    纯流式 + keyby ：  攒批 + 提前预聚合   ====》 local-keyby
+            API：自己实现 
+            sql：开启参数 : minibatch + LocalGlobal
+    keyby + 开窗聚合 ： 二次聚合
+    
+    keyby之前存在倾斜： 使用重分区的算子  rescale、rebalance、shuffle
+    
+4）什么时候出现的？
+    订单
+    
+    
+23、FlinkSQL优化
+1）minibatch ： 攒批 --》 提高吞吐
+2）LocalGlobal： 提前Combiner
+3）Split-Distinct：  count(distinct )
+4）使用Filter语法：
+     count(distinct a)
+     count(distinct a)
+     count(distinct a)
+     count(distinct a)
+     
+二、HBase
+1、基本架构
+2、读写流程 
+     读 比 写 慢  ==》 自己 跟 自己 比
+3、刷写时机 
+    memStore  ：    128M 
+    region级别： 128M * 4 
+    regionserver级别： JVM堆内存 * 0.4 * 0.95
+    定期刷写：默认1小时， 最后一次编辑
+
+4、切分 
+    0.94 ： 固定按照 10G
+    0.94-2.0 ：     min（2* R^3 * 128M , 10G）   R；一个RS上的region数量
+    2.0之后 ： 第一次按照 256m切，后面都按 10G切
+    
+5、合并 
+    小合并： 相邻的几个Hfile合并成一个较大的Hfile
+             不会清理 标记为删除 和 过期的数据 
+    大合并： 将所有的Hfile合并成  一个 Hfile
+             会清理 标记为删除 和 过期的数据 
+              默认7天
+             
+    生产环境注意大合并的时机
+    
+6、rowkey设计
+    1）唯一性 
+    2）长度原则： 最长 64kb， 建议 16B
+    3）散列原则： 加盐（hash值拼接在前面）、 字符串反转、时间戳反转 
+    
+7、预分区
+    建表时指定分区键   SPLIT =》{'01|','02|','03|'}
+    -∞， 01| 
+    01|，02| 
+    02|，03| 
+    03|，+∞
+    
+    | 是一个ascii比较大的字符 
+    
+    0299123   ==》 01|，02| 
+    
+    原始rowkey=12345  ===》 加盐   hash(12345) % 4 = 1  
+                        ==> 01_12345
+
+8、二级索引
+    id    name    age  
+    1      zs     18 
+
+    查找 名字为 zs 的年龄
+    
+    以前的解决方案： 将所有要用到的字段拼接到 rowkey 
+            01_zs_18
+    现在：二级索引  ==》 将 rowkey 和 要过滤的字段 做一个 映射，保存在索引表
+        rowkey  name 
+        1       zs 
+        
+    怎么做？ 
+        借助 ES
+        借助 Phoenix 
+            本地索引 ： 索引数据和 原来的表在一起
+            全局索引： 另外维护一张索引表
+    
+9、数据热点
+    良好的rowkey设计 + 合理的预分区
+    
+    我们用的是phoenix，借助它的盐表功能
+    
+        
+三、ClickHouse 
+1、每天存多少数据？
+    百万日活，大概每天20~30G
+    
+    保存多久： 月
+    
+2、部署几台？
+    clickhouse不跟hadoop部署在一起
+    三台
+    
+3、怎么保证 Clickhouse数据的一致性？
+    我们用的 replacingMergeTree，按照主键去重
+    =》 但是只能保证最终一致性： 分片没合并之前，还是存在重复
+        =》 查询时加上 final ： 版本高于 v20.5.2.7-stable，支持多线程
+        
+4、Clickhouse优缺点
+    优点： 
+        快 ===》 1亿行、180个字段的表 ，单机Clickhouse， 聚合分析 毫秒级响应
+        向量化 
+        列存
+        udf 
+        支持sql语法
+        
+    缺点： 
+        并发弱 ： 默认 单台 100/s ==> 300/s
+            开窗攒批，减轻写入clickhouse的压力
+        join性能差：   ===》  我存的是宽表，不用再join
+        运维麻烦：   扩容缩容
+        
+7、资源优化
+    内存参数 
+    CPU参数
+    
+四、实时数仓每层干了什么事
+1、ods层： 2个Topic
+    前端埋点： 复用离线     nginx -》 springboot -> log -> flume -> kafka
+    业务数据： CDC工具 --- Maxwell 
+            mysql -》 maxwell -》 kafka
+                    支持断点续传 
+                    格式更轻量 
+                    支持同步历史数据
+
+2、dwd层+dim层
+    理论依据：  维度建模  
+    
+    前端埋点的用户行为数据 拆分：  侧输出流   ==》 启动、页面、曝光、事件、错误
+    
+    业务数据： 动态分流  ==》 如果业务表发生变化，不需要重启flink程序
+    
+    MySQL配置表 -> FlinkCDC --》   广播状态 ---》 主流根据拿到配置进行分流
+        事实表 ===》 kafka 
+        维度表 ===》 HBase  （使用  热存储加载的 维表方案）
+        
+3、dwm层： 过渡层  Kafka 
+    拉宽表的时候，避免重复计算
+    
+    事实表 join 事实表 （双流join）： interval join    
+        join不上？  
+            =》 订单 到 支付  ， 支付超时30分钟 ==》 上下界 45分钟
+            
+    维度补全：  热存储加载方案，现查Hbase 
+        旁路缓存： 加速查询， 减少Hbase的压力
+        异步io：  提高并发   ==》 连接池
+           
+        怎么保证缓存的一致性？
+            获取到 维度更新的数据 
+                =》 先删除 redis中 对应的 缓存 
+                =》 再去更新 Hbase的数据
+            redis缓存设置TTL为 24小时
+    
+4、dws层： ClickHouse 
+    双流join：事实表join事实表 
+    维度补全： 事实表 join 维度表
+    
+    开5s的滚动窗口：  可以预处理 、 减轻写入Clickhouse的压力
+    
+    存入ClickHouse是  明细 宽表数据
+    
+    历史数据发生变化，怎么办？
+        =》 往clickhouse重新写一条 ，replacingmergetree，去重保留最新
+            =》 分片合并 ===》 加final
+    
+5、ads层 
+    没有持久化
+    
+        sugar ===》 springboot接口 ===》 现查ClickHouse 
+            ① Clickhouse是明细
+            ② 足够快
+            
+6、监控
+    Prometheus + Grafana
+    
+7、遇到过什么问题？ 优化？
+
+8、既有API、也有SQL？
+    能用SQL的就用SQL，SQL不好实现的会用API来写
+    
+
